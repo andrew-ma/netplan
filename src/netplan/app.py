@@ -26,8 +26,16 @@ def setup_logging():
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("CSV_FILE")
+    group = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument("MAC_ADDRESS")
+
+    group.add_argument("--CSV_FILE")
+
+    wan_info_group = group.add_argument_group("WAN info")
+    wan_info_group.add_argument("--wan-address")
+    wan_info_group.add_argument("--wan_gateway")
+    wan_info_group.add_argument("--wan-vlan")
+
     args = parser.parse_args()
     return args
 
@@ -111,7 +119,8 @@ def get_Connection_Name_to_WAN_Info_dict(dataframe):
     #     "Interface Name"
     # ).to_dict()
 
-    # Use 'Interface Name' as the unique index, so remove duplicates
+    # Use 'Interface Name' as the unique index, so remove duplicates, and this keeps the first entry
+    # NOTE: this assumes that each (building, town) combination has the same WAN address for all
 
     connection_Name_to_WAN_Info_df.drop_duplicates(
         subset=("Interface Name"), inplace=True
@@ -225,11 +234,6 @@ def main():
     # if mac address is listed as part of an interface, then
     # it will print out the interface name
     # otherwise it will print out nothing
-    # interface_name_from_mac_address_command_format = r"ip -o link show | grep '\s{mac_address}\s' | awk '{{print substr($2, 1, length($2)-1)}}'"
-    # interface_name_from_mac_address_command = interface_name_from_mac_address_command_format.format(mac_address=args.MAC_ADDRESS)
-    # print(interface_name_from_mac_address_command)
-
-    # run_command(interface_name_from_mac_address_command)
 
     # ip -o link show | grep '\s{mac_address}\s' | awk '{{print substr($2, 1, length($2)-1)}}'
     my_command = r"ip -o link show | grep '\s{mac_address}\s' | grep -v '@' | awk '{{print substr($2, 1, length($2)-1)}}'".format(
@@ -262,9 +266,9 @@ def main():
         "nmcli connection add type vlan con-name {connection_name}"
         " dev {interface} id {vlan} ip4 {ip_address} gw4 {gateway} ipv6.addr-gen-mode eui64"
     )
-    nmcli_add_dns_command_format = (
-        'nmcli connection mod {connection_name} ipv4.dns "8.8.8.8 8.8.4.4"'
-    )
+    # nmcli_add_dns_command_format = (
+    #     'nmcli connection mod {connection_name} ipv4.dns "8.8.8.8 8.8.4.4"'
+    # )
     nmcli_use_connection_command_format = "nmcli connection up {connection_name}"
 
     connection_name, WAN_info_dict = list(connection_Name_to_WAN_Address_dict.items())[
@@ -282,38 +286,33 @@ def main():
         gateway=WAN_gateway,
         vlan=WAN_vlan,
     )
-    nmcli_add_dns_command = nmcli_add_dns_command_format.format(
-        connection_name=connection_name
-    )
+    # nmcli_add_dns_command = nmcli_add_dns_command_format.format(
+    #     connection_name=connection_name
+    # )
     nmcli_use_connection_command = nmcli_use_connection_command_format.format(
         connection_name=connection_name
     )
 
-    print(
+    nmcli_delete_connection_command = (
         "nmcli connection delete {connection_name}".format(
             connection_name=connection_name
         )
     )
+
+    print(nmcli_delete_connection_command)
+    run_pipe_command(nmcli_delete_connection_command)
+
     print(nmcli_add_connection_command)
-    print(nmcli_add_dns_command)
+    run_pipe_command(nmcli_add_connection_command)
+
+    # print(nmcli_add_dns_command)
+    # run_pipe_command(nmcli_add_dns_command)
+
     print(nmcli_use_connection_command)
+    run_pipe_command(nmcli_use_connection_command)
 
-    # for connection_name, WAN_address in connection_Name_to_WAN_Address_dict.items():
-    #     # Need to run another command for each system, to get the 'interface' name on that system
-    #     # because interface='ens160' is not constant
-    #     # Instead detect the interface name based on the "Mac Address" that we read from ESXI
-
-    #     nmcli_add_connection_command = nmcli_add_connection_command_format.format(
-    #         connection_name=connection_name, interface=interface, ip_address=WAN_address
-    #     )
-
-    #     print(nmcli_add_connection_command)
-
-    #     nmcli_use_connection_command = nmcli_use_connection_command_format.format(
-    #         connection_name=connection_name
-    #     )
-
-    #     print(nmcli_use_connection_command)
+    # to list the interfaces with vlan . may need to change to convert to array
+    # ( nmcli c | awk '{if ($3 == "vlan") print $1 }' )
 
 
 if __name__ == "__main__":
