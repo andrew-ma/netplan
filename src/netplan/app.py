@@ -26,9 +26,16 @@ def setup_logging():
     )
 
 
+def mac_address_argtype(value):
+    if is_valid_MAC_address(value):
+        return value
+    else:
+        raise argparse.ArgumentTypeError("MAC address must have format: 00:00:00:00:00:00")
+
+
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("MAC_ADDRESS")
+    parser.add_argument("MAC_ADDRESS", type=mac_address_argtype)
 
     parser.add_argument("CONNECTION_NAME")
 
@@ -67,41 +74,41 @@ def create_Interface_Name(town, building):
     return "{}_{}".format(town[0:3].upper(), building)
 
 
-def get_Connection_Name_to_WAN_Address_dict(dataframe):
-    # Create a new dataframe with
-    connection_Name_to_WAN_Address_df = dataframe.apply(
-        lambda row: (
-            create_Interface_Name(row["Town"], row["Building"]),
-            row["WAN Address"],
-        ),
-        axis=1,
-        result_type="expand",
-    )
+# def get_Connection_Name_to_WAN_Address_dict(dataframe):
+#     # Create a new dataframe with
+#     connection_Name_to_WAN_Address_df = dataframe.apply(
+#         lambda row: (
+#             create_Interface_Name(row["Town"], row["Building"]),
+#             row["WAN Address"],
+#         ),
+#         axis=1,
+#         result_type="expand",
+#     )
 
-    connection_Name_to_WAN_Address_df.rename(
-        columns={0: "Interface Name", 1: "WAN Address"}, inplace=True
-    )
+#     connection_Name_to_WAN_Address_df.rename(
+#         columns={0: "Interface Name", 1: "WAN Address"}, inplace=True
+#     )
 
-    # NOTE: this could be a cause of error if a (Town, Building) combination has multiple WAN Addresses associated with it
-    # Convert the dataframe to a dictionary {"Interface Name": "WAN Address"}
+#     # NOTE: this could be a cause of error if a (Town, Building) combination has multiple WAN Addresses associated with it
+#     # Convert the dataframe to a dictionary {"Interface Name": "WAN Address"}
 
-    connection_Name_to_WAN_Address_dict = connection_Name_to_WAN_Address_df.set_index(
-        "Interface Name"
-    ).to_dict()["WAN Address"]
+#     connection_Name_to_WAN_Address_dict = connection_Name_to_WAN_Address_df.set_index(
+#         "Interface Name"
+#     ).to_dict()["WAN Address"]
 
-    return connection_Name_to_WAN_Address_dict
+#     return connection_Name_to_WAN_Address_dict
 
-    ### Make values type 'set' if a (Town, Building) combination has multiple WAN Addresses associated with it
-    # connection_Name_to_WAN_Address_set_dict = defaultdict(set)
+#     ### Make values type 'set' if a (Town, Building) combination has multiple WAN Addresses associated with it
+#     # connection_Name_to_WAN_Address_set_dict = defaultdict(set)
 
-    # def add_WAN_Address_to_set(row):
-    #     connection_Name_to_WAN_Address_set_dict[row["Interface Name"]].add(
-    #         row["WAN Address"]
-    #     )
+#     # def add_WAN_Address_to_set(row):
+#     #     connection_Name_to_WAN_Address_set_dict[row["Interface Name"]].add(
+#     #         row["WAN Address"]
+#     #     )
 
-    # connection_Name_to_WAN_Address_df.apply(add_WAN_Address_to_set, axis=1)
+#     # connection_Name_to_WAN_Address_df.apply(add_WAN_Address_to_set, axis=1)
 
-    # return dict(connection_Name_to_WAN_Address_set_dict)
+#     # return dict(connection_Name_to_WAN_Address_set_dict)
 
 
 def get_Connection_Name_to_WAN_Info_dict(dataframe):
@@ -173,6 +180,16 @@ def is_valid_WAN_address(WAN_address: str):
         return True
 
 
+def is_valid_MAC_address(mac_address: str):
+    mac_address_pattern = re.compile(r"[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}")
+
+    match_obj = mac_address_pattern.match(mac_address)
+    if match_obj is None:
+        return False
+    else:
+        return True
+
+
 def parse_csv_file(filename_or_buffer):
     # Only keep rows that have non-empty NET Address column
     # When reading in csv file into Pandas Dataframe, strip all the spaces, and get back a string
@@ -238,19 +255,24 @@ def run_pipe_command(command: str, *, return_bytes=False):
         return (stdout.decode().strip(), stderr.decode().strip())
 
 
-def delete_all_vlans():
+def delete_all_vlans(*, print_only=False):
     get_vlan_nmcli_ids_command = (
         "nmcli connection | awk '{if ($3 == \"vlan\") print $2 }'"
     )
-    vlan_nmcli_ids, _ = run_pipe_command(get_vlan_nmcli_ids_command)
-    if vlan_nmcli_ids is not None:
-        vlan_nmcli_ids_list = vlan_nmcli_ids.decode().strip().split("\n")
-        for connection_id in vlan_nmcli_ids_list:
-            run_pipe_command(
-                "nmcli connection delete {connection_id}".format(
-                    connection_id=connection_id
+
+    if print_only:
+        print(get_vlan_nmcli_ids_command)
+    else:
+        output, error = run_pipe_command(get_vlan_nmcli_ids_command)
+
+        if output:
+            vlan_nmcli_ids = output.split("\n")
+            for connection_id in vlan_nmcli_ids:
+                run_pipe_command(
+                    "nmcli connection delete {connection_id}".format(
+                        connection_id=connection_id
+                    )
                 )
-            )
 
 
 def get_interface_using_mac_address(mac_address, *, print_only=False):
@@ -388,7 +410,7 @@ def main():
     if args.print_only:
         interface = "INTERFACE_PLACEHOLDER"
     else:
-        if interface is not None:
+        if interface is None:
             log.error(
                 "No interface with MAC address '{mac_address}' was found.".format(
                     mac_address=args.MAC_ADDRESS
