@@ -1,4 +1,6 @@
 """This script so far is designed to be run on each individual system
+
+diff /etc/sysconfig/network-scripts/ifcfg-BAR_AS308 /etc/sysconfig/network-scripts/ifcfg-ens160
 """
 import argparse
 from collections import defaultdict
@@ -6,10 +8,10 @@ import logging
 import os
 import re
 import sys
-import subprocess
-from subprocess import check_output, Popen, PIPE
 import shlex
+from subprocess import Popen, PIPE
 import pandas as pd
+
 
 log = logging.getLogger(__name__)
 
@@ -26,18 +28,27 @@ def setup_logging():
 
 def get_args():
     parser = argparse.ArgumentParser()
-    group = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument("MAC_ADDRESS")
 
-    group.add_argument("--CSV_FILE")
+    parser.add_argument("CONNECTION_NAME")
 
-    wan_info_group = group.add_argument_group("WAN info")
-    wan_info_group.add_argument("--wan-address")
-    wan_info_group.add_argument("--wan_gateway")
-    wan_info_group.add_argument("--wan-vlan")
+    parser.add_argument("--print-only", dest="print_only", action="store_true")
+    parser.set_defaults(print_only=False)
+
+    subparsers = parser.add_subparsers()
+    subparsers.required = True
+    subparsers.dest = "INPUT_TYPE"
+
+    csv_parser = subparsers.add_parser("csv")
+    csv_parser.add_argument("CSV_FILE")
+
+    manual_parser = subparsers.add_parser("manual")
+    manual_parser.add_argument("WAN_ADDRESS")
+    manual_parser.add_argument("WAN_GATEWAY")
+    manual_parser.add_argument("WAN_VLAN")
 
     args = parser.parse_args()
-    return args
+    return (args, parser)
 
 
 class NoSpaceStringConverter(dict):
@@ -193,7 +204,7 @@ def parse_csv_file(filename_or_buffer):
     return df
 
 
-def run_pipe_command(command: str):
+def run_pipe_command(command: str, *, return_bytes=False):
     """[summary]
 
     Parameters
@@ -203,116 +214,207 @@ def run_pipe_command(command: str):
 
     Returns
     -------
-    Tuple of (stdout bytes, stderr bytes)
+    Tuple of (stdout, stderr)
         [description]
     """
+    print(command)
+
     split_command = (shlex.split(pipe_section) for pipe_section in command.split("|"))
     first_command_part = next(split_command)
-    cur_process = Popen(first_command_part, stdout=PIPE)
+    cur_process = Popen(first_command_part, stdout=PIPE, stderr=PIPE)
 
     for command_part in split_command:
         last_process = cur_process
-        cur_process = Popen(command_part, stdin=last_process.stdout, stdout=PIPE)
+        cur_process = Popen(
+            command_part, stdin=last_process.stdout, stdout=PIPE, stderr=PIPE
+        )
         last_process.stdout.close()
+        last_process.stderr.close()
 
     stdout, stderr = cur_process.communicate()
-    return (stdout, stderr)
-
-
-def main():
-    setup_logging()
-    args = get_args()
-
-    df = parse_csv_file(args.CSV_FILE)
-
-    connection_Name_to_WAN_Address_dict = get_Connection_Name_to_WAN_Info_dict(df)
-
-    # TODO: Find the interface name
-    # MAC address is in colon format
-    mac_address = args.MAC_ADDRESS  # 00:0c:29:31:c3:65
-
-    # if mac address is listed as part of an interface, then
-    # it will print out the interface name
-    # otherwise it will print out nothing
-
-    # ip -o link show | grep '\s{mac_address}\s' | awk '{{print substr($2, 1, length($2)-1)}}'
-    my_command = r"ip -o link show | grep '\s{mac_address}\s' | grep -v '@' | awk '{{print substr($2, 1, length($2)-1)}}'".format(
-        mac_address=args.MAC_ADDRESS
-    )
-    output, _ = run_pipe_command(my_command)
-    interface = output.decode().strip()
-    if interface == "":
-        log.error(
-            "No interface with MAC address {mac_address} was found.".format(
-                mac_address=args.MAC_ADDRESS
-            )
-        )
-        sys.exit(1)
+    if return_bytes:
+        return (stdout, stderr)
     else:
-        log.info(
-            "Found interface with MAC address {mac_address}:  {interface}".format(
-                mac_address=args.MAC_ADDRESS, interface=interface
+        return (stdout.decode().strip(), stderr.decode().strip())
+
+
+def delete_all_vlans():
+    get_vlan_nmcli_ids_command = (
+        "nmcli connection | awk '{if ($3 == \"vlan\") print $2 }'"
+    )
+    vlan_nmcli_ids, _ = run_pipe_command(get_vlan_nmcli_ids_command)
+    if vlan_nmcli_ids is not None:
+        vlan_nmcli_ids_list = vlan_nmcli_ids.decode().strip().split("\n")
+        for connection_id in vlan_nmcli_ids_list:
+            run_pipe_command(
+                "nmcli connection delete {connection_id}".format(
+                    connection_id=connection_id
+                )
             )
-        )
 
-    # Form the nmcli commands that will be run on each device
-    # nmcli_command_format = "nmcli connection add con-name {connection_name} ifname {interface} type ethernet ip4 {ip_address} 802-3-ethernet.mac-address {mac_address}"
-    # TODO: be sure to add DNS server settings that show up in /etc/resolv.conf like nameserver {dns server} and search localdomain
 
-    # diff /etc/sysconfig/network-scripts/ifcfg-BAR_AS308 /etc/sysconfig/network-scripts/ifcfg-ens160 4,7c4
-
-    # nmcli_add_connection_command_format = "nmcli connection add type vlan con-name {connection_name} ifname {interface} ip4 {ip_address} gw4 {gateway} ipv6.addr-gen-mode eui64"
-    nmcli_add_connection_command_format = (
-        "nmcli connection add type vlan con-name {connection_name}"
-        " dev {interface} id {vlan} ip4 {ip_address} gw4 {gateway} ipv6.addr-gen-mode eui64"
+def get_interface_using_mac_address(mac_address, *, print_only=False):
+    get_interface_using_mac_address_command = r"ip -o link show | grep '\s{mac_address}\s' | grep -v '@' | awk '{{print substr($2, 1, length($2)-1)}}'".format(
+        mac_address=mac_address
     )
-    # nmcli_add_dns_command_format = (
-    #     'nmcli connection mod {connection_name} ipv4.dns "8.8.8.8 8.8.4.4"'
-    # )
-    nmcli_use_connection_command_format = "nmcli connection up {connection_name}"
+    if print_only:
+        print(get_interface_using_mac_address_command)
+    else:
+        output, error = run_pipe_command(get_interface_using_mac_address_command)
 
-    connection_name, WAN_info_dict = list(connection_Name_to_WAN_Address_dict.items())[
-        0
-    ]
+        interface = output
+        if interface == "":
+            return None
+        else:
+            return interface
 
-    WAN_address = WAN_info_dict["WAN Address"]
-    WAN_gateway = WAN_info_dict["WAN GW"]
-    WAN_vlan = WAN_info_dict["WAN Vlan"]
 
-    nmcli_add_connection_command = nmcli_add_connection_command_format.format(
-        connection_name=connection_name,
-        interface=interface,
-        ip_address=WAN_address,
-        gateway=WAN_gateway,
-        vlan=WAN_vlan,
-    )
-    # nmcli_add_dns_command = nmcli_add_dns_command_format.format(
-    #     connection_name=connection_name
-    # )
-    nmcli_use_connection_command = nmcli_use_connection_command_format.format(
-        connection_name=connection_name
-    )
-
+def delete_nmcli_connection(connection_name, *, print_only=False):
     nmcli_delete_connection_command = (
         "nmcli connection delete {connection_name}".format(
             connection_name=connection_name
         )
     )
+    if print_only:
+        print(nmcli_delete_connection_command)
+    else:
+        output, error = run_pipe_command(nmcli_delete_connection_command)
+        if output:
+            log.info(output)
+        if error:
+            log.error(error)
 
-    print(nmcli_delete_connection_command)
-    run_pipe_command(nmcli_delete_connection_command)
 
-    print(nmcli_add_connection_command)
-    run_pipe_command(nmcli_add_connection_command)
+def add_nmcli_vlan_connection(
+    connection_name, interface, ip_address, gateway, vlan_id, *, print_only=False
+):
+    # Form the nmcli commands that will be run on each device
+    nmcli_add_connection_command_format = "nmcli connection add type vlan con-name {connection_name} dev {interface} id {vlan_id} ip4 {ip_address} gw4 {gateway} ipv6.addr-gen-mode eui64"
 
-    # print(nmcli_add_dns_command)
-    # run_pipe_command(nmcli_add_dns_command)
+    nmcli_add_connection_command = nmcli_add_connection_command_format.format(
+        connection_name=connection_name,
+        interface=interface,
+        ip_address=ip_address,
+        vlan_id=vlan_id,
+        gateway=gateway,
+    )
 
-    print(nmcli_use_connection_command)
-    run_pipe_command(nmcli_use_connection_command)
+    if print_only:
+        print(nmcli_add_connection_command)
+    else:
+        output, error = run_pipe_command(nmcli_add_connection_command)
+        if output:
+            log.info(output)
+        if error:
+            log.error(error)
 
-    # to list the interfaces with vlan . may need to change to convert to array
-    # ( nmcli c | awk '{if ($3 == "vlan") print $1 }' )
+
+def set_nmcli_connection_dns(
+    connection_name, dns_str_or_list=("8.8.8.8", "8.8.4.4"), *, print_only=False
+):
+    if isinstance(dns_str_or_list, str):
+        dns_str = dns_str_or_list
+    else:
+        dns_str = " ".join(dns_str_or_list)
+
+    nmcli_set_dns_command_format = (
+        'nmcli connection mod {connection_name} ipv4.dns "{dns}"'
+    )
+    nmcli_set_dns_command = nmcli_set_dns_command_format.format(
+        connection_name=connection_name, dns=dns_str
+    )
+
+    if print_only:
+        print(nmcli_set_dns_command)
+    else:
+        output, error = run_pipe_command(nmcli_set_dns_command)
+        if output:
+            log.info(output)
+        if error:
+            log.error(error)
+
+
+def use_nmcli_connection(connection_name, *, print_only=False):
+    nmcli_use_connection_command_format = "nmcli connection up {connection_name}"
+    nmcli_use_connection_command = nmcli_use_connection_command_format.format(
+        connection_name=connection_name
+    )
+
+    if print_only:
+        print(nmcli_use_connection_command)
+    else:
+        output, error = run_pipe_command(nmcli_use_connection_command)
+        if output:
+            log.info(output)
+        if error:
+            log.error(error)
+
+
+def main():
+    setup_logging()
+    args, parser = get_args()
+
+    connection_name = args.CONNECTION_NAME
+    # MAC address is in colon format
+    # TODO: validate colon format
+    mac_address = args.MAC_ADDRESS  # 00:0c:29:31:c3:65
+
+    if args.INPUT_TYPE == "csv":
+
+        df = parse_csv_file(args.CSV_FILE)
+        connection_name_to_WAN_info_dict = get_Connection_Name_to_WAN_Info_dict(df)
+    elif args.INPUT_TYPE == "manual":
+        wan_address = args.WAN_ADDRESS
+        wan_gateway = args.WAN_GATEWAY
+        wan_vlan = args.WAN_VLAN
+        connection_name_to_WAN_info_dict = {
+            connection_name: {
+                "WAN Address": wan_address,
+                "WAN GW": wan_gateway,
+                "WAN Vlan": wan_vlan,
+            }
+        }
+
+    if connection_name not in connection_name_to_WAN_info_dict:
+        parser.error(
+            "Connection Name {} not found in: {}".format(
+                connection_name, repr(list(connection_name_to_WAN_info_dict.keys()))
+            )
+        )
+
+    interface = get_interface_using_mac_address(
+        args.MAC_ADDRESS, print_only=args.print_only
+    )
+    if args.print_only:
+        interface = "INTERFACE_PLACEHOLDER"
+    else:
+        if interface is not None:
+            log.error(
+                "No interface with MAC address '{mac_address}' was found.".format(
+                    mac_address=args.MAC_ADDRESS
+                )
+            )
+            sys.exit(1)
+        else:
+            log.info(
+                "Found interface with MAC address '{mac_address}': '{interface}'".format(
+                    mac_address=args.MAC_ADDRESS, interface=interface
+                )
+            )
+
+    delete_nmcli_connection(connection_name, print_only=args.print_only)
+
+    WAN_info_dict = connection_name_to_WAN_info_dict[connection_name]
+    add_nmcli_vlan_connection(
+        connection_name,
+        interface,
+        WAN_info_dict["WAN Address"],
+        WAN_info_dict["WAN GW"],
+        WAN_info_dict["WAN Vlan"],
+        print_only=args.print_only,
+    )
+
+    use_nmcli_connection(connection_name, print_only=args.print_only)
 
 
 if __name__ == "__main__":
