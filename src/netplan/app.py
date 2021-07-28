@@ -225,13 +225,16 @@ def parse_csv_file(filename_or_buffer):
     return df
 
 
-def run_pipe_command(command: str, *, return_bytes=False):
+def run_pipe_command(command: str, *, heredoc=None, return_bytes=False):
     """[summary]
 
     Parameters
     ----------
     command_str : str
         Command that will be run (can use pipes normally with '|' separator)
+
+    heredoc: Optional[str]
+        heredoc that will be passed in at the end of command
 
     Returns
     -------
@@ -252,6 +255,10 @@ def run_pipe_command(command: str, *, return_bytes=False):
     except ValueError:
         # Last chunk get all the way to end
         pipe_commands.append(split_command[start_idx:])
+
+    if heredoc is not None:
+        # append heredoc to last pipe command
+        pipe_commands[-1].append(heredoc)
 
     pipe_commands_iter = iter(pipe_commands)
     first_pipe_command = next(pipe_commands_iter)
