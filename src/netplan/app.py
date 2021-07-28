@@ -30,7 +30,9 @@ def mac_address_argtype(value):
     if is_valid_MAC_address(value):
         return value
     else:
-        raise argparse.ArgumentTypeError("MAC address must have format: 00:00:00:00:00:00")
+        raise argparse.ArgumentTypeError(
+            "MAC address must have format: 00:00:00:00:00:00"
+        )
 
 
 def get_args():
@@ -181,7 +183,9 @@ def is_valid_WAN_address(WAN_address: str):
 
 
 def is_valid_MAC_address(mac_address: str):
-    mac_address_pattern = re.compile(r"[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}")
+    mac_address_pattern = re.compile(
+        r"[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}:[\da-fA-F]{2}"
+    )
 
     match_obj = mac_address_pattern.match(mac_address)
     if match_obj is None:
@@ -236,19 +240,35 @@ def run_pipe_command(command: str, *, return_bytes=False):
     """
     print(command)
 
-    split_command = (shlex.split(pipe_section) for pipe_section in command.split("|"))
-    first_command_part = next(split_command)
-    cur_process = Popen(first_command_part, stdout=PIPE, stderr=PIPE)
+    pipe_commands = []
 
-    for command_part in split_command:
+    split_command = shlex.split(command)
+    start_idx = 0
+    try:
+        while True:
+            found_idx = split_command.index("|", start_idx)
+            pipe_commands.append(split_command[start_idx:found_idx])
+            start_idx = found_idx + 1
+    except ValueError:
+        # Last chunk get all the way to end
+        pipe_commands.append(split_command[start_idx:])
+
+    pipe_commands_iter = iter(pipe_commands)
+    first_pipe_command = next(pipe_commands_iter)
+    cur_process = Popen(first_pipe_command, stdout=PIPE, stderr=PIPE)
+
+    for pipe_command in pipe_commands_iter:
         last_process = cur_process
         cur_process = Popen(
-            command_part, stdin=last_process.stdout, stdout=PIPE, stderr=PIPE
+            pipe_command, stdin=last_process.stdout, stdout=PIPE, stderr=PIPE
         )
         last_process.stdout.close()
         last_process.stderr.close()
 
     stdout, stderr = cur_process.communicate()
+    cur_process.stdout.close()
+    cur_process.stderr.close()
+
     if return_bytes:
         return (stdout, stderr)
     else:
