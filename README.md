@@ -6,23 +6,15 @@ pip install -e .
 ```
 
 ## Commands
+* To only print the commands and not run them (useful for copy and paste, or dry run), specify `--print-only` option
+
+* To run commands on a Remote Machine (SSH), specify `--destination SSH_DESTINATION` and `--password-file SSH_PASSWORD_FILE` options
+
 ```
-# For Help and Documentation
+# For Adding VLAN Interfaces
 netplan -h
 
 
-# For supplying details with CSV
-netplan MAC_ADDRESS CONNECTION_NAME csv CSV_FILE
-
-
-# For specifying single connection details
-netplan MAC_ADDRESS CONNECTION_NAME manual WAN_ADDRESS WAN_GATEWAY WAN_VLAN
-
-
-# To only print commands and not run them
-netplan --print-only ...
-
-
-# Delete all VLANs configured with nmcli
-delete_vlans
+# For Deleting VLAN Interfaces
+delete_vlans -h
 ```
