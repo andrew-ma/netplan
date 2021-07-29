@@ -32,7 +32,13 @@ def get_args():
         action="store_true",
         help="If selected, the commands will only be printed and not run.",
     )
-    parser.set_defaults(print_only=False)
+    parser.add_argument(
+        "--use-sshpass",
+        dest="use_sshpass",
+        action="store_true",
+        help="If selected, then it will attempt to use sshpass (if installed) to skip having to type SSH passwords.",
+    )
+    parser.set_defaults(print_only=False, use_sshpass=False)
 
     args = parser.parse_args()
 
@@ -53,7 +59,12 @@ def main():
 for id in ${vlan_connection_ids[@]}; do nmcli connection delete "${id}"; done"""
 
     if ssh_destination:
-        command = wrap_command_with_ssh(command, ssh_destination, ssh_password_filename)
+        command = wrap_command_with_ssh(
+            command,
+            ssh_destination,
+            ssh_password_filename,
+            use_sshpass=args.use_sshpass,
+        )
 
     run_command_pretty_print(command, print_only=args.print_only)
 

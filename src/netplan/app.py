@@ -182,7 +182,13 @@ def get_args():
         action="store_true",
         help="If selected, the commands will only be printed and not run.",
     )
-    parser.set_defaults(print_only=False)
+    parser.add_argument(
+        "--use-sshpass",
+        dest="use_sshpass",
+        action="store_true",
+        help="If selected, then it will attempt to use sshpass (if installed) to skip having to type SSH passwords.",
+    )
+    parser.set_defaults(print_only=False, use_sshpass=False)
 
     args = parser.parse_args()
 
@@ -213,14 +219,16 @@ fi"""
     return command
 
 
-def wrap_command_with_ssh(command, ssh_destination, ssh_password_filename):
+def wrap_command_with_ssh(
+    command, ssh_destination, ssh_password_filename, *, use_sshpass
+):
     ssh_command = f"""cat "{ssh_password_filename}" - << 'EOF' |\n"""
     ssh_command += command
-    if command_exists("sshpass"):
+    if use_sshpass and command_exists("sshpass"):
         ssh_command += f"""\nEOF\nsshpass -f "{ssh_password_filename}" -- ssh "{ssh_destination}" 'sudo --prompt="" -S -s'"""
     else:
         ssh_command += f"""\nEOF\nssh "{ssh_destination}" 'sudo --prompt="" -S -s'"""
-    
+
     return ssh_command
 
 
@@ -282,7 +290,12 @@ def main():
 
     command = create_command(mac_address, connection_name, ip_address, gateway, vlan_id)
     if ssh_destination:
-        command = wrap_command_with_ssh(command, ssh_destination, ssh_password_filename)
+        command = wrap_command_with_ssh(
+            command,
+            ssh_destination,
+            ssh_password_filename,
+            use_sshpass=args.use_sshpass,
+        )
 
     run_command_pretty_print(command, print_only=args.print_only)
 
