@@ -225,7 +225,9 @@ def parse_csv_file(filename_or_buffer):
     return df
 
 
-def run_pipe_command(command: str, *, heredoc=None, return_bytes=False):
+def run_pipe_command(
+    command: str, *, heredoc=None, return_bytes=False, print_command=True
+):
     """[summary]
 
     Parameters
@@ -241,7 +243,12 @@ def run_pipe_command(command: str, *, heredoc=None, return_bytes=False):
     Tuple of (stdout, stderr)
         [description]
     """
-    print(command)
+
+    if print_command:
+        if heredoc is not None:
+            print(command + " " + heredoc)
+        else:
+            print(command)
 
     pipe_commands = []
 
@@ -284,7 +291,7 @@ def run_pipe_command(command: str, *, heredoc=None, return_bytes=False):
 
 def delete_all_vlans(*, print_only=False):
     get_vlan_nmcli_ids_command = (
-        "nmcli connection | awk '{if ($3 == \"vlan\") print $2 }'"
+        """nmcli c | awk '{NF-=1} {if ($NF == "vlan") print $(NF-1)}' """
     )
 
     if print_only:
@@ -296,7 +303,7 @@ def delete_all_vlans(*, print_only=False):
             vlan_nmcli_ids = output.split("\n")
             for connection_id in vlan_nmcli_ids:
                 run_pipe_command(
-                    "nmcli connection delete {connection_id}".format(
+                    'nmcli connection delete "{connection_id}"'.format(
                         connection_id=connection_id
                     )
                 )
