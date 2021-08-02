@@ -1,7 +1,8 @@
 # Netplan
-Script to create a new VLAN interface using `nmcli`
+Script to create a VLAN interface on a Linux system using `nmcli`
 
 > Printing the commands (`--print-only`) works on both Windows and Linux
+
 > Running the commands (without `--print-only`) only works on Linux
 
 ## Installation
