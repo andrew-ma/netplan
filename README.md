@@ -1,7 +1,8 @@
 # Netplan
+Script to create a new VLAN interface using `nmcli`
 
-* Printing the commands (`--print-only`) works on both Windows and Linux
-* Running the commands (without `--print-only`) only works on Linux
+> Printing the commands (`--print-only`) works on both Windows and Linux
+> Running the commands (without `--print-only`) only works on Linux
 
 ## Installation
 > Windows: substitute python3 with python
@@ -29,3 +30,6 @@ delete_vlans -h
 ```
 netplan --mac-address 00:0c:29:31:c3:6f --connection-name ABC_123 --ip-address 192.168.2.4/24 --gateway 192.168.2.1 --vlan-id 2 --destination andrew@localhost --password password.txt --use-sshpass --print-only
 ```
+
+## Development
+Go to [Development Documentation](development.md)
