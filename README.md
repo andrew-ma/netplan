@@ -1,10 +1,12 @@
 # Netplan
 
-NOTE: Only works on Linux!
+* Printing the commands (`--print-only`) works on both Windows and Linux
+* Running the commands (without `--print-only`) only works on Linux
 
 ## Installation
+> Windows: substitute python3 with python
 ```
-pip install -e .
+python3 -m pip install --upgrade .
 ```
 
 ## Commands
@@ -25,5 +27,5 @@ delete_vlans -h
 
 ## Examples
 ```
-netplan -m 00:0c:29:31:c3:6f -n test${i} -i 192.168.2.4/30 -g 192.168.2.3 -v 47 -d andrew@localhost -p password.txt  --use-sshpass --print-only
+netplan --mac-address 00:0c:29:31:c3:6f --connection-name ABC_123 --ip-address 192.168.2.4/24 --gateway 192.168.2.1 --vlan-id 2 --destination andrew@localhost --password password.txt --use-sshpass --print-only
 ```
